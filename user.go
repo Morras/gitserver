@@ -3,7 +3,6 @@ package gitserver
 import (
     "golang.org/x/net/context"
     "time"
-    "net/http"
 )
 
 type Session struct {
@@ -24,8 +23,4 @@ type UserStore interface {
     UpdateUser(ctx context.Context, user *User) (*User, error)
     LookupUser(ctx context.Context, id string) (*User, error)
     Sessions(ctx context.Context, id string) []Session
-}
-
-type ContextProvider interface {
-    ContextFromRequest(req *http.Request) context.Context
 }

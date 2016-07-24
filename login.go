@@ -1,10 +1,6 @@
 package gitserver
 
 import (
-	"log" //TODO take log as config instead if you want to use a different one, like app engine
-
-	gaeLog "google.golang.org/appengine/log" //TODO get rid of this if possible
-
 	"fmt"
 	"net/http"
 	"time"
@@ -31,6 +27,7 @@ type login struct {
 	userStore   UserStore
 	config      Config
 	ctxProvider ContextProvider
+	logger      ContextAwareLogger
 }
 
 func (l *login) contextFromRequest(req *http.Request) context.Context {
@@ -53,12 +50,12 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 
 	ctx := l.contextFromRequest(req)
 
-	gaeLog.Infof(ctx, "Serving logged in")
+	l.logger.Debugf(ctx, "Serving logged in")
 
 	sc, err := sessionCookieFromRequest(req)
 	if err != nil { //Not a problem if the err is that the cookie does not exists
-		gaeLog.Errorf(ctx, "Error getting session cookie from request %v", err)
-		logAndServeError(fmt.Sprintf("Error getting session cookie from request %v", err), err, res)
+		l.logger.Errorf(ctx, "Error getting session cookie from request %v", err)
+		l.logAndServeError(ctx, fmt.Sprintf("Error getting session cookie from request %v", err), err, res)
 		return
 	}
 
@@ -73,16 +70,14 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 
 	token, err := l.extractToken(req)
 	if err != nil {
-		gaeLog.Errorf(ctx, "%v", err)
-		log.Printf("%v", err)
+		l.logger.Errorf(ctx, "%v", err)
 		res.WriteHeader(http.StatusUnauthorized)
 		return //TODO I should probably do something a bit more intelligent like displaying the login page again
 	}
 
 	user, err := l.userStore.LookupUser(ctx, token.LocalID)
 	if err != nil { //TODO err could also just be that the user does not exists
-		gaeLog.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
-		log.Printf("Error getting user with id %v. %v", token.LocalID, err)
+		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
 		res.WriteHeader(http.StatusUnauthorized)
 		return //TODO I should probably do something a bit more intelligent like displaying the login page again
 	}
@@ -117,7 +112,7 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 
 	cookieValue, err := json.Marshal(sc)
 	if err != nil {
-		logAndServeError(fmt.Sprintf("Error marshalling cookie %v %v", sc, err), err, res)
+		l.logAndServeError(ctx, fmt.Sprintf("Error marshalling cookie %v %v", sc, err), err, res)
 		return
 	}
 
@@ -134,8 +129,8 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 	return
 }
 
-func logAndServeError(logMessage string, err error, res http.ResponseWriter) {
-	log.Print(logMessage)
+func (l *login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
+	l.logger.Errorf(ctx, logMessage)
 	res.WriteHeader(http.StatusInternalServerError)
 }
 
@@ -152,7 +147,6 @@ func (l *login) extractToken(req *http.Request) (*gitkit.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("client: %v", client)
 
 	ts := client.TokenFromRequest(req)
 	audience := l.config.Audiences
@@ -169,19 +163,19 @@ func (l *login) extractToken(req *http.Request) (*gitkit.Token, error) {
 func (l *login) logoutHandler(res http.ResponseWriter, req *http.Request) {
 
 	ctx := l.contextFromRequest(req)
-	
-	gaeLog.Errorf(ctx, "Serving logged out")
+
+	l.logger.Debugf(ctx, "Serving logged out")
 
 	token, err := l.extractToken(req)
 	if err != nil {
-		log.Printf("%v", err)
+		l.logger.Infof(ctx, "%v", err)
 		res.WriteHeader(http.StatusUnauthorized)
 		return //TODO I should probably do something a bit more intelligent like displaying the login page again
 	}
 
 	user, err := l.userStore.LookupUser(ctx, token.LocalID)
 	if err != nil { //TODO err could also just be that the user does not exists
-		log.Printf("Error getting user with id %v. %v", token.LocalID, err)
+		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
 		res.WriteHeader(http.StatusUnauthorized)
 		return //TODO I should probably do something a bit more intelligent like displaying the login page again
 	}
