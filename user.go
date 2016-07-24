@@ -1,26 +1,29 @@
 package gitserver
 
 import (
-    "golang.org/x/net/context"
-    "time"
+	"errors"
+	"time"
+
+	"golang.org/x/net/context"
 )
 
+var ErrUserNotFound = errors.New("Session cookie not found")
+
 type Session struct {
-    Value string
-    Expires time.Time 
+	Value   string
+	Expires time.Time
 }
 
 type User struct {
-    ID string
-    Email string
-    //There are some concerns here about thread safety
-    Sessions []Session
+	ID    string
+	Email string
+	//There are some concerns here about thread safety
+	Sessions []Session
 }
 
 type UserStore interface {
-    //TODO might not be needed LookupUser() *User
-    //This should not alter the sessions, there are some concerns about thread safety
-    UpdateUser(ctx context.Context, user *User) (*User, error)
-    LookupUser(ctx context.Context, id string) (*User, error)
-    Sessions(ctx context.Context, id string) []Session
+	//TODO might not be needing Sessions
+	UpdateUser(ctx context.Context, user *User) (*User, error)
+	LookupUser(ctx context.Context, id string) (*User, error)
+	Sessions(ctx context.Context, id string) []Session
 }
