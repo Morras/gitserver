@@ -4,16 +4,19 @@ import (
 	"errors"
 	"time"
 
+	"net/http"
+
 	"golang.org/x/net/context"
 )
 
-var ErrUserNotFound = errors.New("Session cookie not found")
+var ErrUserNotFound = errors.New("User not found")
 
 type Session struct {
 	Value   string
 	Expires time.Time
 }
 
+//Perhaps this should be an interface instead?
 type User struct {
 	ID    string
 	Email string
@@ -23,7 +26,36 @@ type User struct {
 
 type UserStore interface {
 	//TODO might not be needing Sessions
-	UpdateUser(ctx context.Context, user *User) (*User, error)
+	UpdateUser(ctx context.Context, user *User) error
 	LookupUser(ctx context.Context, id string) (*User, error)
 	Sessions(ctx context.Context, id string) []Session
+}
+
+func AuthorizedUser(req *http.Request) (*User, error) {
+
+	if loginHandler.logger == nil {
+		panic("You must call gitserver.Setup(...) before gitserver.AuthorizedUser(...)")
+	}
+
+	ctx := loginHandler.contextFromRequest(req)
+
+	loginHandler.logger.Debugf(ctx, "Serving logged in")
+
+	/* Check if user was already logged in */
+	sc, err := sessionCookieFromRequest(req)
+	if err != nil && err != ErrSessionCookieNotFound {
+		return nil, ErrUserNotFound
+	}
+
+	if err != ErrSessionCookieNotFound {
+		user, _ := loginHandler.userStore.LookupUser(ctx, sc.UserID)
+		if user != nil {
+			for _, s := range user.Sessions {
+				if s.Value == sc.SessionID && !isExpired(s) {
+					return user, nil
+				}
+			}
+		}
+	}
+	return nil, ErrUserNotFound
 }

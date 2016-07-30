@@ -4,6 +4,8 @@ import (
 	"net/http"
 )
 
+var loginHandler login;
+
 type Config struct{
 	FilePathToFrontend string
 	UrlPathToApiRoot string
@@ -22,10 +24,10 @@ func Setup(taskAPI http.Handler, config Config, userStore UserStore, ctxProvider
 	
 	http.Handle(config.UrlPathToApiRoot, taskAPI)
 
-	login := login{userStore: userStore, config: config, ctxProvider: ctxProvider, logger: logger}
+	loginHandler = login{userStore: userStore, config: config, ctxProvider: ctxProvider, logger: logger}
 
-    http.HandleFunc(config.UrlPathToLogin, login.loginHandler)
-    http.HandleFunc(config.UrlPathToLogout, login.logoutHandler)
+    http.HandleFunc(config.UrlPathToLogin, loginHandler.loginHandler)
+    http.HandleFunc(config.UrlPathToLogout, loginHandler.logoutHandler)
 
 	http.Handle("/", fileHandler)
 }

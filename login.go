@@ -34,22 +34,6 @@ type login struct {
 	logger      ContextAwareLogger
 }
 
-func (l *login) contextFromRequest(req *http.Request) context.Context {
-	return l.ctxProvider.ContextFromRequest(req)
-}
-
-func sessionCookieFromRequest(req *http.Request) (sessionCookie, error) {
-	sc := sessionCookie{}
-	cookie, err := req.Cookie(cookieName)
-	if err == http.ErrNoCookie {
-		return sc, ErrSessionCookieNotFound
-	}
-	if err := json.Unmarshal([]byte(cookie.Value), sc); err != nil {
-		return sc, err
-	}
-	return sc, nil
-}
-
 func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 
 	ctx := l.contextFromRequest(req)
@@ -64,14 +48,21 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	if err != ErrSessionCookieNotFound {
-		userSessions := l.userStore.Sessions(ctx, sc.UserID) //TODO lookup user, if no user, remove cookie and return unauthorized
-		for _, s := range userSessions {
-			if s.Value == sc.SessionID && !isExpired(s) {
-				http.Redirect(res, req, l.config.LoginRedirectUrl, http.StatusFound)
-				return
+		user, _ := l.userStore.LookupUser(ctx, sc.UserID)
+		if user != nil {
+			for _, s := range user.Sessions {
+				if s.Value == sc.SessionID && !isExpired(s) {
+					//Renew the session
+					l.renewSessionCookie(user, ctx, res)
+					http.Redirect(res, req, l.config.LoginRedirectUrl, http.StatusFound)
+					return
+				}
 			}
 		}
 	}
+
+	//If the user does not have a valid session cookie, we must
+	//identify the user by the token
 
 	/* Get token */
 	token, err := l.extractToken(req)
@@ -95,56 +86,46 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 		user.Email = token.Email
 	}
 
-	validSessions := []Session{}
-
-	//Clean up sessions by removing expired ones
-	for _, s := range user.Sessions {
-		if isExpired(s) {
-			validSessions = append(validSessions, s)
-		}
-	}
-
 	//Create a new session for the user
-	d := time.Hour * time.Duration(l.config.SessionDuration)
-	ed := time.Now().Add(d)
-	session := Session{Value: uuid.NewV4().String(), Expires: ed}
-
-	user.Sessions = append(validSessions, session)
-
-	l.userStore.UpdateUser(ctx, user)
-
-	//Create and set cookie
-	sc = sessionCookie{
-		UserID:    user.ID,
-		SessionID: session.Value,
-	}
-
-	cookieValue, err := json.Marshal(sc)
-	if err != nil {
+	if err := l.renewSessionCookie(user, ctx, res); err != nil {
 		l.logAndServeError(ctx, fmt.Sprintf("Error marshalling cookie %v %v", sc, err), err, res)
 		return
 	}
-
-	c := http.Cookie{
-		Name:    "cookieName",
-		Value:   string(cookieValue),
-		Expires: session.Expires,
-		MaxAge:  l.config.SessionDuration * 60 * 60, //hours to seconds
-		//TODO Should probably add secure once dev is done and I got a https test up and running
-	}
-	http.SetCookie(res, &c)
 
 	http.Redirect(res, req, l.config.LoginRedirectUrl, http.StatusFound)
 	return
 }
 
-func (l *login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
-	l.logger.Errorf(ctx, logMessage)
-	res.WriteHeader(http.StatusInternalServerError)
+func (l *login) logoutHandler(res http.ResponseWriter, req *http.Request) {
+	ctx := l.contextFromRequest(req)
+
+	l.logger.Debugf(ctx, "Serving logged out")
+
+	l.deleteSessionCookie(res)
+
+	token, err := l.extractToken(req)
+	if err != nil {
+		l.logger.Infof(ctx, "%v", err)
+		res.WriteHeader(http.StatusUnauthorized)
+		return //TODO I should probably do something a bit more intelligent like displaying the login page again
+	}
+
+	user, err := l.userStore.LookupUser(ctx, token.LocalID)
+	if err != nil { //TODO err could also just be that the user does not exists
+		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
+		res.WriteHeader(http.StatusUnauthorized)
+		return //TODO I should probably do something a bit more intelligent like displaying the login page again
+	}
+
+	//This logs the user out of all devices, consider only doing it for the one
+	user.Sessions = []Session{}
+	l.userStore.UpdateUser(ctx, user)
+
+	http.Redirect(res, req, l.config.LogoutRedirectUrl, http.StatusFound)
 }
 
-func isExpired(s Session) bool {
-	return s.Expires.Sub(time.Now()).Nanoseconds() > 0
+func (l *login) contextFromRequest(req *http.Request) context.Context {
+	return l.ctxProvider.ContextFromRequest(req)
 }
 
 func (l *login) extractToken(req *http.Request) (*gitkit.Token, error) {
@@ -169,28 +150,76 @@ func (l *login) extractToken(req *http.Request) (*gitkit.Token, error) {
 	return token, err
 }
 
-func (l *login) logoutHandler(res http.ResponseWriter, req *http.Request) {
-	//TODO remove cookie
-	ctx := l.contextFromRequest(req)
+func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.ResponseWriter) error {
 
-	l.logger.Debugf(ctx, "Serving logged out")
+	validSessions := []Session{}
 
-	token, err := l.extractToken(req)
-	if err != nil {
-		l.logger.Infof(ctx, "%v", err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
+	//Clean up sessions by removing expired ones
+	for _, s := range user.Sessions {
+		if isExpired(s) {
+			validSessions = append(validSessions, s)
+		}
 	}
 
-	user, err := l.userStore.LookupUser(ctx, token.LocalID)
-	if err != nil { //TODO err could also just be that the user does not exists
-		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
-	}
+	//Create a new session for the user
+	d := time.Hour * time.Duration(l.config.SessionDuration)
+	ed := time.Now().Add(d)
+	session := Session{Value: uuid.NewV4().String(), Expires: ed}
 
-	user.Sessions = []Session{}
+	user.Sessions = append(validSessions, session)
+
 	l.userStore.UpdateUser(ctx, user)
 
-	http.Redirect(res, req, l.config.LogoutRedirectUrl, http.StatusFound)
+	//Create and set cookie
+	sc := sessionCookie{
+		UserID:    user.ID,
+		SessionID: session.Value,
+	}
+
+	cookieValue, err := json.Marshal(sc)
+	if err != nil {
+		return err
+	}
+
+	c := http.Cookie{
+		Name:    cookieName,
+		Value:   string(cookieValue),
+		Expires: session.Expires,
+		MaxAge:  l.config.SessionDuration * 60 * 60, //hours to seconds
+		//TODO Should probably add secure once dev is done and I got a https test up and running
+	}
+	http.SetCookie(res, &c)
+
+	return nil
+}
+
+func (l *login) deleteSessionCookie(res http.ResponseWriter) {
+	c := http.Cookie{
+		Name:   cookieName,
+		Value:  "",
+		MaxAge: -1, //Delete it now
+		//TODO Should probably add secure once dev is done and I got a https test up and running
+	}
+	http.SetCookie(res, &c)
+}
+
+func (l *login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
+	l.logger.Errorf(ctx, logMessage)
+	res.WriteHeader(http.StatusInternalServerError)
+}
+
+func sessionCookieFromRequest(req *http.Request) (sessionCookie, error) {
+	sc := sessionCookie{}
+	cookie, err := req.Cookie(cookieName)
+	if err == http.ErrNoCookie {
+		return sc, ErrSessionCookieNotFound
+	}
+	if err := json.Unmarshal([]byte(cookie.Value), sc); err != nil {
+		return sc, err
+	}
+	return sc, nil
+}
+
+func isExpired(s Session) bool {
+	return s.Expires.Sub(time.Now()).Nanoseconds() > 0
 }
