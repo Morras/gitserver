@@ -43,7 +43,7 @@ func AuthorizedUser(req *http.Request) (*User, error) {
 
 	/* Check if user was already logged in */
 	sc, err := sessionCookieFromRequest(req)
-	if err != nil && err != ErrSessionCookieNotFound {
+	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
