@@ -2,9 +2,9 @@ package gitserver
 
 import (
 	"encoding/json"
-	"golang.org/x/net/context"
 	"net/http"
 	"testing"
+	"github.com/morras/gitserver/mocks"
 )
 
 func TestNoCookie(t *testing.T) {
@@ -50,30 +50,8 @@ func setup() {
         UrlPathToLogin: "/login",
         UrlPathToLogout: "/logout",
     }
-	Setup(apiHandlerMock{}, config, nil, contextProviderMock{}, &loggerMock{})
+	Setup(mocks.ApiHandlerMock{}, config, nil, mocks.ContextProviderMock{}, &mocks.LoggerMock{})
 }
 
-type contextProviderMock struct {
-}
 
-func (c contextProviderMock) ContextFromRequest(req *http.Request) context.Context {
-	return nil
-}
 
-type apiHandlerMock struct {
-}
-
-func (api apiHandlerMock) ServeHTTP(res http.ResponseWriter, req *http.Request) {
-}
-
-type loggerMock struct {
-}
-
-func (*loggerMock) Debugf(ctx context.Context, format string, v ...interface{}) {
-}
-
-func (*loggerMock) Infof(ctx context.Context, format string, v ...interface{}) {
-}
-
-func (*loggerMock) Errorf(ctx context.Context, format string, v ...interface{}) {
-}
