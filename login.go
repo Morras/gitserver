@@ -13,16 +13,17 @@ import (
 
 	"errors"
 
+	"encoding/base64"
 	"github.com/google/identity-toolkit-go-client/gitkit"
 )
 
 const (
-	cookieName = "gitserver-session"
+	CookieName = "gitserver-session"
 )
 
 var ErrSessionCookieNotFound = errors.New("Session cookie not found")
 
-type sessionCookie struct {
+type SessionCookie struct {
 	UserID    string
 	SessionID string
 }
@@ -171,7 +172,7 @@ func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 	l.userStore.UpdateUser(ctx, user)
 
 	//Create and set cookie
-	sc := sessionCookie{
+	sc := SessionCookie{
 		UserID:    user.ID,
 		SessionID: session.Value,
 	}
@@ -180,10 +181,11 @@ func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 	if err != nil {
 		return err
 	}
+	encodedCookieValue := base64.StdEncoding.EncodeToString(cookieValue)
 
 	c := http.Cookie{
-		Name:    cookieName,
-		Value:   string(cookieValue),
+		Name:    CookieName,
+		Value:   string(encodedCookieValue),
 		Expires: session.Expires,
 		MaxAge:  l.config.SessionDuration * 60 * 60, //hours to seconds
 		//TODO Should probably add secure once dev is done and I got a https test up and running
@@ -195,7 +197,7 @@ func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 
 func (l *login) deleteSessionCookie(res http.ResponseWriter) {
 	c := http.Cookie{
-		Name:   cookieName,
+		Name:   CookieName,
 		Value:  "",
 		MaxAge: -1, //Delete it now
 		//TODO Should probably add secure once dev is done and I got a https test up and running
@@ -208,18 +210,25 @@ func (l *login) logAndServeError(ctx context.Context, logMessage string, err err
 	res.WriteHeader(http.StatusInternalServerError)
 }
 
-func sessionCookieFromRequest(req *http.Request) (sessionCookie, error) {
-	sc := sessionCookie{}
-	cookie, err := req.Cookie(cookieName)
+func sessionCookieFromRequest(req *http.Request) (SessionCookie, error) {
+	sc := SessionCookie{}
+	cookie, err := req.Cookie(CookieName)
 	if err == http.ErrNoCookie {
 		return sc, ErrSessionCookieNotFound
 	}
-	if err := json.Unmarshal([]byte(cookie.Value), sc); err != nil {
+	decodedCookieValue, err := base64.StdEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return sc, err		
+	}
+	if err := json.Unmarshal(decodedCookieValue, &sc); err != nil {
+		error := err.Error()
+		error = error + ""
 		return sc, err
 	}
 	return sc, nil
 }
 
 func isExpired(s Session) bool {
-	return s.Expires.Sub(time.Now()).Nanoseconds() > 0
+	delta := s.Expires.Sub(time.Now()).Nanoseconds()
+	return delta < 0
 }

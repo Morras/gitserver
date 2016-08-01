@@ -6,8 +6,10 @@ before_install:
   - go get golang.org/x/tools/cmd/cover
 
 script:
-  - go test ./... -coverprofile=coverage.txt -covermode=atomic
+#  - go test ./... -coverprofile=coverage.txt -covermode=atomic
+  - ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --compilers=2
 
 after_success:
+  - ./.aggregate_coverage.sh
   - bash <(curl -s https://codecov.io/bash)
   

@@ -25,10 +25,8 @@ type User struct {
 }
 
 type UserStore interface {
-	//TODO might not be needing Sessions
 	UpdateUser(ctx context.Context, user *User) error
 	LookupUser(ctx context.Context, id string) (*User, error)
-	Sessions(ctx context.Context, id string) []Session
 }
 
 func AuthorizedUser(req *http.Request) (*User, error) {
