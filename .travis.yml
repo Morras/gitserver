@@ -9,6 +9,7 @@ script:
   - ginkgo -r --randomizeAllSpecs --randomizeSuites --failOnPending --cover --trace --race --compilers=2
 
 after_success:
+  - chmod u+x .aggregate_coverage.sh
   - ./.aggregate_coverage.sh
   - bash <(curl -s https://codecov.io/bash)
   
