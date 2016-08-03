@@ -4,7 +4,7 @@ language: go
 branches:
   only:
   - master
-  - stable
+  - travis
 
 before_install:
   - go get github.com/onsi/gomega
