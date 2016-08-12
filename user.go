@@ -11,6 +11,20 @@ import (
 
 var ErrUserNotFound = errors.New("User not found")
 
+type UserStoreErr struct {
+	Cause string
+}
+
+func (err UserStoreErr) Error() string {
+	return "UserStore error caused by: " + err.Cause
+}
+
+func NewUserStoreErr(cause string) UserStoreErr {
+	return UserStoreErr{
+		Cause: cause,
+	}
+}
+
 type Session struct {
 	Value   string
 	Expires time.Time
@@ -46,7 +60,13 @@ func AuthorizedUser(req *http.Request) (*User, error) {
 	}
 
 	if err != ErrSessionCookieNotFound {
-		user, _ := loginHandler.userStore.LookupUser(ctx, sc.UserID)
+		user, err := loginHandler.userStore.LookupUser(ctx, sc.UserID)
+		if err == ErrUserNotFound {
+			return nil, ErrUserNotFound
+		}
+		if err != nil {
+			return nil, NewUserStoreErr(err.Error())
+		}
 		if user != nil {
 			for _, s := range user.Sessions {
 				if s.Value == sc.SessionID && !isExpired(s) {

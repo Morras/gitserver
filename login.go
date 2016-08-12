@@ -218,7 +218,7 @@ func sessionCookieFromRequest(req *http.Request) (SessionCookie, error) {
 	}
 	decodedCookieValue, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
-		return sc, err		
+		return sc, err
 	}
 	if err := json.Unmarshal(decodedCookieValue, &sc); err != nil {
 		error := err.Error()
