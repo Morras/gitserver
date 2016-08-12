@@ -14,7 +14,6 @@ import (
 	"errors"
 
 	"encoding/base64"
-	"github.com/google/identity-toolkit-go-client/gitkit"
 )
 
 const (
@@ -28,14 +27,19 @@ type SessionCookie struct {
 	SessionID string
 }
 
-type login struct {
-	userStore   UserStore
-	config      Config
-	ctxProvider ContextProvider
-	logger      ContextAwareLogger
+type Login struct {
+	userStore      UserStore
+	config         Config
+	ctxProvider    ContextProvider
+	logger         ContextAwareLogger
+	tokenExtractor TokenExtractor
 }
 
-func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
+func NewLogin(userStore UserStore, config Config, ctxProvider ContextProvider, logger ContextAwareLogger, tokenExtractor TokenExtractor) *Login {
+	return &Login{userStore: userStore, config: config, ctxProvider: ctxProvider, logger: logger, tokenExtractor: tokenExtractor}
+}
+
+func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 
 	ctx := l.contextFromRequest(req)
 
@@ -54,8 +58,8 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 			for _, s := range user.Sessions {
 				if s.Value == sc.SessionID && !isExpired(s) {
 					//Renew the session
-					l.renewSessionCookie(user, ctx, res)
-					http.Redirect(res, req, l.config.LoginRedirectUrl, http.StatusFound)
+					l.renewSessionCookie(user, ctx, res, sc.SessionID)
+					http.Redirect(res, req, l.config.LoginRedirectURL, http.StatusFound)
 					return
 				}
 			}
@@ -66,19 +70,19 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 	//identify the user by the token
 
 	/* Get token */
-	token, err := l.extractToken(req)
+	token, err := l.tokenExtractor.ExtractToken(req, ctx, l.config.Audiences)
 	if err != nil {
 		l.logger.Errorf(ctx, "%v", err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
+		http.Redirect(res, req, l.config.URLPathToLogin, http.StatusFound)
+		return
 	}
 
 	/* Get user or create a new one if none exists */
 	user, err := l.userStore.LookupUser(ctx, token.LocalID)
 	if err != nil && err != ErrUserNotFound {
 		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
+		http.Redirect(res, req, l.config.URLPathToLogin, http.StatusFound)
+		return
 	}
 
 	if err == ErrUserNotFound {
@@ -88,23 +92,23 @@ func (l *login) loginHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	//Create a new session for the user
-	if err := l.renewSessionCookie(user, ctx, res); err != nil {
+	if err := l.renewSessionCookie(user, ctx, res, ""); err != nil {
 		l.logAndServeError(ctx, fmt.Sprintf("Error marshalling cookie %v %v", sc, err), err, res)
 		return
 	}
 
-	http.Redirect(res, req, l.config.LoginRedirectUrl, http.StatusFound)
+	http.Redirect(res, req, l.config.LoginRedirectURL, http.StatusFound)
 	return
 }
 
-func (l *login) logoutHandler(res http.ResponseWriter, req *http.Request) {
+func (l *Login) LogoutHandler(res http.ResponseWriter, req *http.Request) {
 	ctx := l.contextFromRequest(req)
 
 	l.logger.Debugf(ctx, "Serving logged out")
 
-	l.deleteSessionCookie(res)
+	deleteSessionCookie(res)
 
-	token, err := l.extractToken(req)
+	token, err := l.tokenExtractor.ExtractToken(req, ctx, l.config.Audiences)
 	if err != nil {
 		l.logger.Infof(ctx, "%v", err)
 		res.WriteHeader(http.StatusUnauthorized)
@@ -122,42 +126,20 @@ func (l *login) logoutHandler(res http.ResponseWriter, req *http.Request) {
 	user.Sessions = []Session{}
 	l.userStore.UpdateUser(ctx, user)
 
-	http.Redirect(res, req, l.config.LogoutRedirectUrl, http.StatusFound)
+	http.Redirect(res, req, l.config.LogoutRedirectURL, http.StatusFound)
 }
 
-func (l *login) contextFromRequest(req *http.Request) context.Context {
+func (l *Login) contextFromRequest(req *http.Request) context.Context {
 	return l.ctxProvider.ContextFromRequest(req)
 }
 
-func (l *login) extractToken(req *http.Request) (*gitkit.Token, error) {
-
-	ctx := l.contextFromRequest(req)
-
-	config := gitkit.Config{}
-	client, err := gitkit.New(ctx, &config)
-	if err != nil {
-		return nil, err
-	}
-
-	ts := client.TokenFromRequest(req)
-	audience := l.config.Audiences
-
-	token, err := client.ValidateToken(ctx, ts, audience)
-
-	if err != nil {
-		err = fmt.Errorf("Unable to validate token %v, error %v", ts, err)
-	}
-
-	return token, err
-}
-
-func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.ResponseWriter) error {
+func (l *Login) renewSessionCookie(user *User, ctx context.Context, res http.ResponseWriter, oldSessionID string) error {
 
 	validSessions := []Session{}
 
-	//Clean up sessions by removing expired ones
+	//Clean up sessions by removing expired ones, as well as the one we are replacing
 	for _, s := range user.Sessions {
-		if isExpired(s) {
+		if !isExpired(s) && s.Value != oldSessionID {
 			validSessions = append(validSessions, s)
 		}
 	}
@@ -195,7 +177,12 @@ func (l *login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 	return nil
 }
 
-func (l *login) deleteSessionCookie(res http.ResponseWriter) {
+func (l *Login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
+	l.logger.Errorf(ctx, logMessage)
+	res.WriteHeader(http.StatusInternalServerError)
+}
+
+func deleteSessionCookie(res http.ResponseWriter) {
 	c := http.Cookie{
 		Name:   CookieName,
 		Value:  "",
@@ -205,17 +192,18 @@ func (l *login) deleteSessionCookie(res http.ResponseWriter) {
 	http.SetCookie(res, &c)
 }
 
-func (l *login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
-	l.logger.Errorf(ctx, logMessage)
-	res.WriteHeader(http.StatusInternalServerError)
-}
-
 func sessionCookieFromRequest(req *http.Request) (SessionCookie, error) {
-	sc := SessionCookie{}
 	cookie, err := req.Cookie(CookieName)
 	if err == http.ErrNoCookie {
-		return sc, ErrSessionCookieNotFound
+		return SessionCookie{}, ErrSessionCookieNotFound
 	}
+
+	return SessionCookieFromCookie(cookie)
+}
+
+func SessionCookieFromCookie(cookie *http.Cookie) (SessionCookie, error) {
+	sc := SessionCookie{}
+
 	decodedCookieValue, err := base64.StdEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		return sc, err

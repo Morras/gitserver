@@ -1,8 +1,8 @@
 package mocks
 
 import (
-	"net/http"
 	"golang.org/x/net/context"
+	"net/http"
 )
 
 //Stupid minimal mock needed to fulfill a contract

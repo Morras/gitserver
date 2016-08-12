@@ -6,10 +6,9 @@ import (
 )
 
 type UserStore struct {
-
-    Store struct {
-        Users []gitserver.User
-    }
+	Store struct {
+		Users []gitserver.User
+	}
 
 	UpdateUserCall struct {
 		Receives struct {
@@ -26,9 +25,9 @@ type UserStore struct {
 			Ctx context.Context
 			ID  string
 		}
-        Returns struct {
-            Err error
-        }
+		Returns struct {
+			Err error
+		}
 	}
 }
 
@@ -36,6 +35,14 @@ func (us *UserStore) UpdateUser(ctx context.Context, user *gitserver.User) error
 	us.UpdateUserCall.Receives.Ctx = ctx
 	us.UpdateUserCall.Receives.User = user
 
+	for i, u := range us.Store.Users {
+		if u.ID == user.ID {
+			us.Store.Users[i] = *user
+			return nil
+		}
+	}
+
+	us.Store.Users = append(us.Store.Users, *user)
 	return us.UpdateUserCall.Returns.Err
 }
 
@@ -43,11 +50,11 @@ func (us *UserStore) LookupUser(ctx context.Context, id string) (*gitserver.User
 	us.LookupUserCall.Receives.Ctx = ctx
 	us.LookupUserCall.Receives.ID = id
 
-    for _, u := range us.Store.Users {
-        if u.ID == id {
-            return &u, nil
-        }
-    }
+	for _, u := range us.Store.Users {
+		if u.ID == id {
+			return &u, nil
+		}
+	}
 
 	return nil, us.LookupUserCall.Returns.Err
 }

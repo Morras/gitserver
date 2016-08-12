@@ -1,32 +1,16 @@
 package gitserver_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
-
-	"time"
 
 	"encoding/base64"
 
 	"errors"
+
 	"github.com/morras/gitserver"
-	"github.com/morras/gitserver/mocks"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
-
-var userStoreMock mocks.UserStore
-
-var _ = BeforeSuite(func() {
-	config := gitserver.Config{
-		FilePathToFrontend: "/",
-		UrlPathToApiRoot:   "/api",
-		UrlPathToLogin:     "/login",
-		UrlPathToLogout:    "/logout",
-	}
-	gitserver.Setup(mocks.ApiHandlerMock{}, config, &userStoreMock, mocks.ContextProviderMock{}, &mocks.LoggerMock{})
-})
 
 var _ = Describe("AuthorizedUser", func() {
 
@@ -230,45 +214,3 @@ var _ = Describe("AuthorizedUser", func() {
 		})
 	})
 })
-
-func createUserStoreSession(value string, expiresInHours int64) gitserver.Session {
-	return gitserver.Session{
-		Value:   value,
-		Expires: time.Now().Add(time.Duration(expiresInHours) * time.Hour),
-	}
-}
-
-func createRequestWithCookie(userID string, sessionID string) *http.Request {
-
-	//Create and set cookie
-	sc := gitserver.SessionCookie{
-		UserID:    userID,
-		SessionID: sessionID,
-	}
-
-	cookieValue, err := json.Marshal(sc)
-	if err != nil {
-		Fail(fmt.Sprintf("Unable to marshal cookie: %v, %v", sc, err))
-	}
-	encodedCookieValue := base64.StdEncoding.EncodeToString(cookieValue)
-
-	c := http.Cookie{
-		Name:   gitserver.CookieName,
-		Value:  encodedCookieValue,
-		MaxAge: 1 * 60 * 60, //1 hour, this value is only important for the browser and has not meaning in the tests.
-	}
-
-	req := createDummyRequest()
-	req.AddCookie(&c)
-
-	return req
-}
-
-func createDummyRequest() *http.Request {
-	req, err := http.NewRequest("Get", "/", nil)
-	if err != nil {
-		Fail(fmt.Sprintf("Unable to create dummy request %v", err))
-	}
-
-	return req
-}

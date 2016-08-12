@@ -4,15 +4,15 @@ import (
 	"net/http"
 )
 
-var loginHandler login
+var loginHandler *Login
 
 type Config struct {
 	FilePathToFrontend string
-	UrlPathToApiRoot   string
-	UrlPathToLogin     string
-	UrlPathToLogout    string
-	LoginRedirectUrl   string
-	LogoutRedirectUrl  string
+	URLPathToApiRoot   string
+	URLPathToLogin     string
+	URLPathToLogout    string
+	LoginRedirectURL   string
+	LogoutRedirectURL  string
 	Audiences          []string
 	SessionDuration    int
 }
@@ -22,12 +22,12 @@ func Setup(taskAPI http.Handler, config Config, userStore UserStore, ctxProvider
 	//At least according to the source but the doc does not mention this
 	fileHandler := http.FileServer(http.Dir(config.FilePathToFrontend))
 
-	http.Handle(config.UrlPathToApiRoot, taskAPI)
+	http.Handle(config.URLPathToApiRoot, taskAPI)
 
-	loginHandler = login{userStore: userStore, config: config, ctxProvider: ctxProvider, logger: logger}
+	loginHandler = NewLogin(userStore, config, ctxProvider, logger, &GitTokenExtractor{})
 
-	http.HandleFunc(config.UrlPathToLogin, loginHandler.loginHandler)
-	http.HandleFunc(config.UrlPathToLogout, loginHandler.logoutHandler)
+	http.HandleFunc(config.URLPathToLogin, loginHandler.LoginHandler)
+	http.HandleFunc(config.URLPathToLogout, loginHandler.LogoutHandler)
 
 	http.Handle("/", fileHandler)
 }
