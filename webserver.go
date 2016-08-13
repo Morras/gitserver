@@ -16,6 +16,7 @@ type Config struct {
 	NewUserRedirectURL string
 	Audiences          []string
 	SessionDuration    int
+	SecureCookies      bool
 }
 
 func Setup(taskAPI http.Handler, config Config, userStore UserStore, ctxProvider ContextProvider, logger ContextAwareLogger) {

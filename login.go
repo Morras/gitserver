@@ -49,7 +49,7 @@ func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 	sc, err := sessionCookieFromRequest(req)
 	if err != nil && err != ErrSessionCookieNotFound {
 		l.logger.Errorf(ctx, "%v", err)
-		deleteSessionCookie(res)
+		l.deleteSessionCookie(res)
 		http.Redirect(res, req, l.config.URLPathToLogin, http.StatusFound)
 		return
 	}
@@ -125,7 +125,7 @@ func (l *Login) LogoutHandler(res http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	deleteSessionCookie(res)
+	l.deleteSessionCookie(res)
 
 	http.Redirect(res, req, l.config.LogoutRedirectURL, http.StatusFound)
 }
@@ -171,19 +171,19 @@ func (l *Login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 		Value:   string(encodedCookieValue),
 		Expires: session.Expires,
 		MaxAge:  l.config.SessionDuration * 60 * 60, //hours to seconds
-		//TODO Should probably add secure once dev is done and I got a https test up and running
+		Secure:  l.config.SecureCookies,
 	}
 	http.SetCookie(res, &c)
 
 	return nil
 }
 
-func deleteSessionCookie(res http.ResponseWriter) {
+func (l *Login) deleteSessionCookie(res http.ResponseWriter) {
 	c := http.Cookie{
 		Name:   CookieName,
 		Value:  "DELETED",
 		MaxAge: -1, //Delete it now
-		//TODO Should probably add secure once dev is done and I got a https test up and running
+		Secure: l.config.SecureCookies,
 	}
 	http.SetCookie(res, &c)
 }
