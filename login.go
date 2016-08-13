@@ -110,28 +110,22 @@ func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 
 func (l *Login) LogoutHandler(res http.ResponseWriter, req *http.Request) {
 	ctx := l.contextFromRequest(req)
-
 	l.logger.Debugf(ctx, "Serving logged out")
 
+	if sc, err := sessionCookieFromRequest(req); err == nil {
+		user, _ := l.userStore.LookupUser(ctx, sc.UserID)
+		if user != nil {
+			for _, s := range user.Sessions {
+				if s.Value == sc.SessionID && !isExpired(s) {
+					//This logs the user out of all devices, consider only doing it for the one
+					user.Sessions = []Session{}
+					l.userStore.UpdateUser(ctx, user)
+					break
+				}
+			}
+		}
+	}
 	deleteSessionCookie(res)
-
-	token, err := l.tokenExtractor.ExtractToken(req, ctx, l.config.Audiences)
-	if err != nil {
-		l.logger.Infof(ctx, "%v", err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
-	}
-
-	user, err := l.userStore.LookupUser(ctx, token.LocalID)
-	if err != nil { //TODO err could also just be that the user does not exists
-		l.logger.Errorf(ctx, "Error getting user with id %v. %v", token.LocalID, err)
-		res.WriteHeader(http.StatusUnauthorized)
-		return //TODO I should probably do something a bit more intelligent like displaying the login page again
-	}
-
-	//This logs the user out of all devices, consider only doing it for the one
-	user.Sessions = []Session{}
-	l.userStore.UpdateUser(ctx, user)
 
 	http.Redirect(res, req, l.config.LogoutRedirectURL, http.StatusFound)
 }

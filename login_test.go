@@ -375,7 +375,95 @@ var _ = Describe("Login", func() {
 	})
 
 	Describe("Logging out", func() {
-		//Skip("Not yet implemented")
+
+		Describe("With a valid cookie", func() {
+			var res *httptest.ResponseRecorder
+			var userID = "42"
+			var sessionID = "123"
+			var otherUserID = "21"
+			BeforeEach(func() {
+				//As we are not validating the token in the mock, the LocalID is enough
+				tokenExtractorMock.ExtractTokenCall.Returns.Token = nil
+				tokenExtractorMock.ExtractTokenCall.Returns.Error = errors.New("Some error")
+
+				userStoreMock.Store.Users = []gitserver.User{
+					{
+						ID: userID,
+						Sessions: []gitserver.Session{
+							createUserStoreSession("Prefix"+sessionID, 1),
+							createUserStoreSession(sessionID, 1),
+							createUserStoreSession(sessionID+"suffix", 1),
+						},
+					},
+					{
+						ID: otherUserID,
+						Sessions: []gitserver.Session{
+							createUserStoreSession(sessionID, 1),
+						},
+					},
+				}
+				userStoreMock.LookupUserCall.Returns.Err = gitserver.NewUserStoreErr("cause")
+
+				req := createRequestWithCookie(userID, sessionID)
+				res = httptest.NewRecorder()
+				login.LogoutHandler(res, req)
+			})
+
+			It("Should remove all sessions for the user in the user store", func() {
+				user, _ := userStoreMock.LookupUser(nil, userID)
+				Expect(len(user.Sessions)).To(BeIdenticalTo(0))
+			})
+
+			It("Should not affact other users in the user store", func() {
+				user, _ := userStoreMock.LookupUser(nil, otherUserID)
+				Expect(len(user.Sessions)).To(BeIdenticalTo(1))
+			})
+
+			It("It should delete the session cookie in the response", func() {
+				c := cookieFromResponse(res)
+				Expect(c.Value).To(BeIdenticalTo("DELETED")) //We cannot get the expiration date, so the value have to do.
+			})
+
+			It("Should redirect to the logged out page", func() {
+				ExpectRedirectTo(res, config.LogoutRedirectURL)
+			})
+		})
+
+		Describe("With an invalid cookie", func() {
+			var res *httptest.ResponseRecorder
+			var userID = "42"
+			var sessionID = "123"
+			BeforeEach(func() {
+				//As we are not validating the token in the mock, the LocalID is enough
+				tokenExtractorMock.ExtractTokenCall.Returns.Token = nil
+				tokenExtractorMock.ExtractTokenCall.Returns.Error = errors.New("Some error")
+
+				userStoreMock.Store.Users = []gitserver.User{
+					{
+						ID: userID,
+						Sessions: []gitserver.Session{
+							createUserStoreSession("Prefix"+sessionID, 1),
+						},
+					},
+				}
+				userStoreMock.LookupUserCall.Returns.Err = gitserver.NewUserStoreErr("cause")
+
+				req := createRequestWithCookie(userID, sessionID)
+				res = httptest.NewRecorder()
+				login.LogoutHandler(res, req)
+			})
+
+			It("Clears the cookie", func() {
+				c := cookieFromResponse(res)
+				Expect(c.Value).To(BeIdenticalTo("DELETED")) //We cannot get the expiration date, so the value have to do.
+			})
+
+			It("Does not alter the user store", func() {
+				user, _ := userStoreMock.LookupUser(nil, userID)
+				Expect(len(user.Sessions)).To(BeIdenticalTo(1))
+			})
+
+		})
 	})
 })
 
