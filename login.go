@@ -48,7 +48,9 @@ func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 	/* Check if user was already logged in */
 	sc, err := sessionCookieFromRequest(req)
 	if err != nil && err != ErrSessionCookieNotFound {
-		l.logAndServeError(ctx, fmt.Sprintf("Error getting session cookie from request %v", err), err, res)
+		l.logger.Errorf(ctx, "%v", err)
+		deleteSessionCookie(res)
+		http.Redirect(res, req, l.config.URLPathToLogin, http.StatusFound)
 		return
 	}
 
@@ -57,7 +59,6 @@ func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 		if user != nil {
 			for _, s := range user.Sessions {
 				if s.Value == sc.SessionID && !isExpired(s) {
-					//Renew the session
 					l.renewSessionCookie(user, ctx, res, sc.SessionID)
 					http.Redirect(res, req, l.config.LoginRedirectURL, http.StatusFound)
 					return
@@ -84,20 +85,26 @@ func (l *Login) LoginHandler(res http.ResponseWriter, req *http.Request) {
 		http.Redirect(res, req, l.config.URLPathToLogin, http.StatusFound)
 		return
 	}
-
+	isNewUser := false
 	if err == ErrUserNotFound {
 		user = &User{ID: token.LocalID, Email: token.Email}
+		isNewUser = true
 	} else if token.EmailVerified {
 		user.Email = token.Email
 	}
 
 	//Create a new session for the user
 	if err := l.renewSessionCookie(user, ctx, res, ""); err != nil {
-		l.logAndServeError(ctx, fmt.Sprintf("Error marshalling cookie %v %v", sc, err), err, res)
+		l.logger.Errorf(ctx, fmt.Sprintf("Error marshalling cookie %v %v", sc, err))
+		res.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	http.Redirect(res, req, l.config.LoginRedirectURL, http.StatusFound)
+	if isNewUser {
+		http.Redirect(res, req, l.config.NewUserRedirectURL, http.StatusFound)
+	} else {
+		http.Redirect(res, req, l.config.LoginRedirectURL, http.StatusFound)
+	}
 	return
 }
 
@@ -177,15 +184,10 @@ func (l *Login) renewSessionCookie(user *User, ctx context.Context, res http.Res
 	return nil
 }
 
-func (l *Login) logAndServeError(ctx context.Context, logMessage string, err error, res http.ResponseWriter) {
-	l.logger.Errorf(ctx, logMessage)
-	res.WriteHeader(http.StatusInternalServerError)
-}
-
 func deleteSessionCookie(res http.ResponseWriter) {
 	c := http.Cookie{
 		Name:   CookieName,
-		Value:  "",
+		Value:  "DELETED",
 		MaxAge: -1, //Delete it now
 		//TODO Should probably add secure once dev is done and I got a https test up and running
 	}

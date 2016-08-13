@@ -29,6 +29,7 @@ var config = gitserver.Config{
 	URLPathToLogout:    "/logout",
 	LoginRedirectURL:   "/LoginRedirectURL",
 	LogoutRedirectURL:  "/LogoutRedirectURL",
+	NewUserRedirectURL: "/NewUserRedirectURL",
 	SessionDuration:    42,
 }
 

@@ -13,6 +13,7 @@ type Config struct {
 	URLPathToLogout    string
 	LoginRedirectURL   string
 	LogoutRedirectURL  string
+	NewUserRedirectURL string
 	Audiences          []string
 	SessionDuration    int
 }

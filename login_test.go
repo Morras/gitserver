@@ -1,6 +1,8 @@
 package gitserver_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -216,8 +218,6 @@ var _ = Describe("Login", func() {
 		})
 
 		Context("With an invalid session cookie and no token", func() {
-			var userID = "42"
-			var sessionID = "Session id"
 			var res *httptest.ResponseRecorder
 			BeforeEach(func() {
 				//As we are not validating the token in the mock, the LocalID is enough
@@ -228,18 +228,30 @@ var _ = Describe("Login", func() {
 					{},
 				}
 
-				req := createRequestWithCookie(userID, sessionID)
+				//Create and set cookie
+				sc := "Session cookie is not a struct"
+
+				cookieValue, _ := json.Marshal(sc)
+				encodedCookieValue := base64.StdEncoding.EncodeToString(cookieValue)
+
+				c := http.Cookie{
+					Name:   gitserver.CookieName,
+					Value:  encodedCookieValue,
+					MaxAge: 1 * 60 * 60, //1 hour, this value is only important for the browser and has not meaning in the tests.
+				}
+
+				req := createDummyRequest()
+				req.AddCookie(&c)
+
 				res = httptest.NewRecorder()
 				login.LoginHandler(res, req)
 			})
 
 			It("Should delete the cookie and redirect to the log in page", func() {
-				req := &http.Request{Header: http.Header{"Cookie": res.HeaderMap["Set-Cookie"]}}
-				_, err := req.Cookie(gitserver.CookieName)
+				c := cookieFromResponse(res)
 
-				Expect(err).To(BeIdenticalTo(http.ErrNoCookie))
+				Expect(c.Value).To(BeIdenticalTo("DELETED")) //We cannot get the expiration date, so the value have to do.
 				Expect(len(userStoreMock.Store.Users[0].Sessions)).To(BeIdenticalTo(0))
-
 				ExpectRedirectTo(res, config.URLPathToLogin)
 			})
 		})
@@ -280,8 +292,8 @@ var _ = Describe("Login", func() {
 				Expect(len(userSessions)).To(BeIdenticalTo(1))
 			})
 
-			It("Should redirect to the logged in page", func() {
-				ExpectRedirectTo(res, config.LoginRedirectURL)
+			It("Should redirect to the new user page", func() {
+				ExpectRedirectTo(res, config.NewUserRedirectURL)
 			})
 		})
 
