@@ -23,8 +23,6 @@ func TestGitserver(t *testing.T) {
 
 var userStoreMock mocks.UserStore
 var config = gitserver.Config{
-	FilePathToFrontend: "/",
-	URLPathToApiRoot:   "/api",
 	URLPathToLogin:     "/login",
 	URLPathToLogout:    "/logout",
 	LoginRedirectURL:   "/LoginRedirectURL",
@@ -40,7 +38,7 @@ var config = gitserver.Config{
 // I do not like injecting Login into AuthorizedUser as users of the server should
 // not have to bother with instantializing the Login as that is done by calling Setup
 var _ = BeforeSuite(func() {
-	gitserver.Setup(mocks.ApiHandlerMock{}, config, &userStoreMock, mocks.ContextProviderMock{}, &mocks.LoggerMock{})
+	gitserver.Setup(http.NewServeMux(), config, &userStoreMock, mocks.ContextProviderMock{}, &mocks.LoggerMock{})
 })
 
 // Common helper methods
